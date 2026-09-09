@@ -1,4 +1,4 @@
-﻿using GHelper.Gpu;
+using GHelper.Gpu;
 using GHelper.Helpers;
 using GHelper.Input;
 using GHelper.Peripherals;
@@ -102,7 +102,7 @@ namespace GHelper.USB
             set { rearMode = GetRearModes().ContainsKey(value) ? value : AuraMode.AuraStatic; }
         }
 
-        static bool isACPI = AppConfig.IsTUF() || AppConfig.IsVivoZenPro();
+        static bool isACPI = (AppConfig.IsTUF() || AppConfig.IsVivoZenPro()) && !AppConfig.IsZenbookPro16X();
 
         static bool isStrix => BacklightType == AuraBacklightType.MultiZone || BacklightType == AuraBacklightType.PerKey;
         public static bool IsBacklightDetected => BacklightType != AuraBacklightType.Unknown;
@@ -175,7 +175,15 @@ namespace GHelper.USB
             modes[AuraMode.AuraColorCycle] = Properties.Strings.AuraColorCycle;
             if (isStrixKb) modes[AuraMode.AuraRainbow] = Properties.Strings.AuraRainbow;
 
-            if (perKey)
+            // On the Zenbook Pro 16X, the hardware's mode byte only matches AuraMode's own
+            // ordinal for some values - Rain (5) and Flash (12) are confirmed live; Star (4),
+            // Highlight (6), Laser (7), Ripple (8) and Comet (11) produce no hardware effect at
+            // those byte values, so they're hidden here rather than offered as broken options.
+            if (perKey && AppConfig.IsZenbookPro16X())
+            {
+                modes[AuraMode.Rain] = "Rain";
+            }
+            else if (perKey)
             {
                 modes[AuraMode.Star] = "Star";
                 modes[AuraMode.Rain] = "Rain";
@@ -186,7 +194,11 @@ namespace GHelper.USB
 
             modes[AuraMode.AuraStrobe] = Properties.Strings.AuraStrobe;
 
-            if (perKey)
+            if (perKey && AppConfig.IsZenbookPro16X())
+            {
+                modes[AuraMode.Flash] = "Flash";
+            }
+            else if (perKey)
             {
                 modes[AuraMode.Comet] = "Comet";
                 modes[AuraMode.Flash] = "Flash";
@@ -198,17 +210,24 @@ namespace GHelper.USB
                 return modes;
             }
 
-            modes[AuraMode.HEATMAP] = "Heatmap";
-            modes[AuraMode.GPUMODE] = "GPU Mode";
-            modes[AuraMode.AMBIENT] = "Ambient";
-            modes[AuraMode.BATTERY] = "Battery";
-            modes[AuraMode.AUDIO] = "Audio Spectrum";
-            modes[AuraMode.AUDIOPULSE] = "Audio Pulse";
-
-            if (isStrixKb)
+            // Software-driven modes (Heatmap/GPU/Ambient/Battery/Audio/Gradient/Zone Test) all
+            // stream frames through ApplyDirect(Color[]) on a timer, same as the confirmed-working
+            // manual per-key test - but live testing found none of them actually light the
+            // keyboard on this hardware. Root cause not yet found; hidden until it is.
+            if (!AppConfig.IsZenbookPro16X())
             {
-                modes[AuraMode.GRADIENT] = "Gradient";
-                modes[AuraMode.ZONETEST] = "Zone Test";
+                modes[AuraMode.HEATMAP] = "Heatmap";
+                modes[AuraMode.GPUMODE] = "GPU Mode";
+                modes[AuraMode.AMBIENT] = "Ambient";
+                modes[AuraMode.BATTERY] = "Battery";
+                modes[AuraMode.AUDIO] = "Audio Spectrum";
+                modes[AuraMode.AUDIOPULSE] = "Audio Pulse";
+
+                if (isStrixKb)
+                {
+                    modes[AuraMode.GRADIENT] = "Gradient";
+                    modes[AuraMode.ZONETEST] = "Zone Test";
+                }
             }
 
             return modes;
@@ -314,6 +333,18 @@ namespace GHelper.USB
         private static void DetectBacklightType()
         {
             if (isACPI) return;
+
+            if (AppConfig.IsZenbookPro16X())
+            {
+                BacklightType = AuraBacklightType.PerKey;
+                HasLightbar = true;
+                HasLogo = true;
+                HasRearglow = false;
+                isStrix4Zone = false;
+                AppConfig.Set("backlight_type", (byte)AuraBacklightType.PerKey);
+                Logger.WriteLine("Aura: Zenbook Pro 16X OLED detected (PerKey RGB + Dual Lightbars + Monogram Logo)");
+                return;
+            }
 
             if (IsBacklightDetected)
             {
@@ -422,12 +453,20 @@ namespace GHelper.USB
                 backlight = true;
                 if (Mode == AuraMode.GRADIENT) ApplyAura();
             }
+
+            if (AppConfig.IsZenbookPro16X())
+            {
+                bool onBattery = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
+                bool logoAwake = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
+                Program.acpi.SetMonogramLogo(logoAwake && backlight);
+            }
         }
 
         public static void DirectBrightness(int brightness, string log)
         {
             if (isACPI) Program.acpi.TUFKeyboardBrightness(brightness, log);
             if (AppConfig.IsAlly()) AsusHid.SetFeatureAura([AsusHid.AURA_ID, 0xBA, 0xC5, 0xC4, (byte)brightness]);
+            else if (AppConfig.IsZenbookPro16X()) AsusHid.WriteZenbook16XBrightness(brightness, log);
             else AsusHid.WriteInput([AsusHid.INPUT_ID, 0xBA, 0xC5, 0xC4, (byte)brightness], log);
         }
 
@@ -485,6 +524,11 @@ namespace GHelper.USB
 
         public static void ApplyPowerOff()
         {
+            if (AppConfig.IsZenbookPro16X())
+            {
+                Program.acpi.SetMonogramLogo(false);
+                return;
+            }
             AsusHid.Write(AuraPowerMessage(new AuraPower()));
         }
 
@@ -538,6 +582,13 @@ namespace GHelper.USB
             if (AppConfig.IsAlly())
             {
                 ApplyAllyPower(flags);
+                return;
+            }
+
+            if (AppConfig.IsZenbookPro16X())
+            {
+                Program.acpi.SetMonogramLogo(flags.AwakeLogo && backlight);
+                ApplyAura();
                 return;
             }
 
@@ -659,6 +710,12 @@ namespace GHelper.USB
                 return;
             }
 
+            if (AppConfig.IsZenbookPro16X())
+            {
+                ApplyZenbook16XDirect(color);
+                return;
+            }
+
             const byte keySet = 167;
             const byte ledCount = 178;
             const ushort mapSize = 3 * ledCount;
@@ -739,9 +796,69 @@ namespace GHelper.USB
             AsusHid.SetFeatureAura(buffer);
         }
 
+        private static void ApplyZenbook16XDirect(Color[] color)
+        {
+            if (color == null || color.Length == 0) return;
+
+            bool onBattery = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
+            bool awakeKeyb = onBattery ? AppConfig.IsOnBattery("keyboard_awake") : AppConfig.IsNotFalse("keyboard_awake");
+            bool awakeBar = onBattery ? AppConfig.IsOnBattery("keyboard_awake_bar") : AppConfig.IsNotFalse("keyboard_awake_bar");
+
+            Color baseColor = awakeKeyb ? color[0] : Color.Black;
+            Color[] buffer = new Color[168];
+
+            for (int ledIndex = 0; ledIndex < packetMap.Length; ledIndex++)
+            {
+                byte keyIndex = packetMap[ledIndex];
+                if (keyIndex < buffer.Length)
+                {
+                    byte zone = isStrixNumpad ? packetZoneNumpad[ledIndex] : packetZone[ledIndex];
+                    buffer[keyIndex] = awakeKeyb ? (zone < color.Length ? color[zone] : baseColor) : Color.Black;
+                }
+            }
+
+            Color leftBar = awakeBar ? (color.Length > 4 ? color[4] : baseColor) : Color.Black;
+            Color rightBar = awakeBar ? (color.Length > 5 ? color[5] : (color.Length > 4 ? color[4] : baseColor)) : Color.Black;
+
+            buffer[147] = leftBar;
+            buffer[163] = rightBar;
+
+            for (int chunk = 0; chunk < 11; chunk++)
+            {
+                int chunkStart = chunk * 16;
+                int count = (chunk == 10) ? 8 : 16;
+
+                byte[] pkt = new byte[64];
+                pkt[0] = AsusHid.ZENBOOK_16X_AURA_ID;
+                pkt[1] = 0xA2;
+                pkt[2] = 0x00;
+                pkt[3] = 0x01;
+                pkt[4] = 0x01;
+                pkt[5] = 0x00;
+                pkt[6] = (byte)chunkStart;
+                pkt[7] = (byte)count;
+                pkt[8] = 0x00;
+
+                for (int k = 0; k < count; k++)
+                {
+                    int keyIdx = chunkStart + k;
+                    pkt[9 + k * 3]     = buffer[keyIdx].R;
+                    pkt[9 + k * 3 + 1] = buffer[keyIdx].G;
+                    pkt[9 + k * 3 + 2] = buffer[keyIdx].B;
+                }
+
+                AsusHid.SetFeatureAura(pkt);
+            }
+        }
+
         public static void ApplyDirectLightbar(Color[] color)
         {
             if (AsusLampArray.Available) return;
+            if (AppConfig.IsZenbookPro16X())
+            {
+                ApplyZenbook16XDirect(color);
+                return;
+            }
             var map = isStrix4ZoneFlipped ? packet4ZoneFlipped : packet4Zone;
             byte[] buffer = new byte[64];
             buffer[0] = AsusHid.AURA_ID;
@@ -955,6 +1072,16 @@ namespace GHelper.USB
             PeripheralsProvider.SyncMiceWithKeyboardAura();
             PeripheralsProvider.SyncKeyboardsWithAura();
 
+            if (AppConfig.IsZenbookPro16X())
+            {
+                bool onBattery = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
+                bool logoAwake = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
+                Program.acpi.SetMonogramLogo(logoAwake && backlight);
+
+                ApplyZenbook16XAura(Mode, _Color1, effectiveSpeed);
+                return;
+            }
+
             AsusHid.Write(new List<byte[]> { AuraMessage(Mode, _Color1, _Color2, _speed), MESSAGE_SET, MESSAGE_APPLY }, "Aura", AsusHid.MAIN_AURA_PIDS);
             XGM.LightMode(Mode, _Color1, _Color2, _speed);
 
@@ -963,6 +1090,54 @@ namespace GHelper.USB
 
             ApplyRearLight();
 
+        }
+
+        private static void ApplyZenbook16XAura(AuraMode mode, Color color, AuraSpeed speed)
+        {
+            if (!backlight)
+            {
+                SendZenbook16XHardwareMode(0, Color.Black, 2);
+                return;
+            }
+
+            // The Zenbook's firmware mode byte matches AuraMode's own ordinal values directly
+            // (confirmed live: Rain's ordinal (5) triggers the hardware's built-in "Raindrop"
+            // effect, and Breathe/ColorCycle/Rainbow/Strobe's ordinals already matched too).
+            // Static used to be routed through the per-key chunk buffer (ApplyZenbook16XDirect),
+            // but that channel doesn't reliably pre-empt a firmware effect (e.g. Raindrop) that's
+            // still animating on the MCU - only a real 0xA0 mode-set + 0xA5 apply does.
+            byte hwMode = (byte)mode;
+
+            byte speedByte = speed switch
+            {
+                AuraSpeed.Slow => 1,
+                AuraSpeed.Fast => 3,
+                _ => 2
+            };
+
+            SendZenbook16XHardwareMode(hwMode, color, speedByte);
+        }
+
+        private static void SendZenbook16XHardwareMode(byte hwMode, Color color, byte speedByte)
+        {
+            byte[] pkt = new byte[64];
+            pkt[0] = AsusHid.ZENBOOK_16X_AURA_ID;
+            pkt[1] = 0xA0;
+            pkt[2] = 0x00;
+            pkt[3] = hwMode;
+            pkt[4] = color.R;
+            pkt[5] = color.G;
+            pkt[6] = color.B;
+            pkt[7] = speedByte;
+            pkt[8] = 0x00; // direction
+
+            AsusHid.SetFeatureAura(pkt);
+
+            byte[] applyPkt = new byte[64];
+            applyPkt[0] = AsusHid.ZENBOOK_16X_AURA_ID;
+            applyPkt[1] = 0xA5;
+
+            AsusHid.SetFeatureAura(applyPkt);
         }
 
         public static void StopAudio()

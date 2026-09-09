@@ -26,6 +26,23 @@ Small and lightweight Armoury Crate alternative for Asus laptops offering almost
 
 [![United24](https://github.com/user-attachments/assets/aa9444e3-9daa-4b88-a473-7a7f855e3a07)](https://u24.gov.ua/)
 
+## :sparkles: About this fork
+
+This is a personal fork of [seerge/g-helper](https://github.com/seerge/g-helper) — all credit for
+the app itself goes to the original project. This fork exists solely to add support for the
+**ASUS ZenBook Pro 16X OLED (UX7602BZ / UX7602ZM)**, whose keyboard backlight, per-key RGB, side
+lightbars, and brightness controls aren't supported upstream.
+
+Through live hardware testing and reverse-engineering of ASUS's own MyASUS software, this fork
+adds:
+- Keyboard backlight brightness control
+- Per-key RGB and independent left/right side-lightbar colors
+- Hardware lighting effects: Static, Breathing, Color Cycle, Rainbow, Strobe, Raindrop, Flash
+
+All of it is gated behind detection of this specific laptop model, so it has no effect on any
+other supported device. See [`FINDINGS.md`](../FINDINGS.md) in the repo root for the full
+protocol write-up, what's confirmed working, and what's still open.
+
 ## :loudspeaker: YouTube Reviews and Guides
 | [![Youtube review Josh Cravey](https://i.ytimg.com/vi/hqe-PjuE-K8/hqdefault.jpg)](https://www.youtube.com/watch?v=hqe-PjuE-K8) | [![Youtube review Crimson Tech](https://i.ytimg.com/vi/5XUIMUzgHU0/hqdefault.jpg)](https://www.youtube.com/watch?v=5XUIMUzgHU0) | [![Youtube review cbutters Tech](https://i.ytimg.com/vi/6aVdwJKZSSc/hqdefault.jpg)](https://www.youtube.com/watch?v=6aVdwJKZSSc) |
 | ----------------- | ---------------- | ---------------- | 

@@ -1,4 +1,4 @@
-﻿using GHelper;
+using GHelper;
 using GHelper.USB;
 using System.Collections.Concurrent;
 using System.Management;
@@ -138,6 +138,7 @@ public class AsusACPI
     public const int TUF_KB2 = 0x0010005a;
 
     public const int TUF_KB_STATE = 0x00100057;
+    public const int MonogramLogo = 0x00100066;
 
     public const int MicMuteLed = 0x00040017;
     public const int SoundMuteLed = 0x0004001C;
@@ -955,7 +956,12 @@ public class AsusACPI
         state = state | 0x01 << 8;
 
         DeviceSet(TUF_KB_STATE, state, "TUF_KB");
-        if (AppConfig.IsVivoZenPro() && IsSupported(KBD_BACKLIGHT_OOBE)) DeviceSet(KBD_BACKLIGHT_OOBE, 1, "VIVO OOBE");
+        if (AppConfig.IsVivoZenPro() && !AppConfig.IsZenbookPro16X() && IsSupported(KBD_BACKLIGHT_OOBE)) DeviceSet(KBD_BACKLIGHT_OOBE, 1, "VIVO OOBE");
+    }
+
+    public void SetMonogramLogo(bool enabled)
+    {
+        DeviceSet(MonogramLogo, enabled ? 0x000B00B2 : 0x000000B2, "MonogramLogo");
     }
 
     private ManagementEventWatcher? watcher;

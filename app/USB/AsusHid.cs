@@ -1,4 +1,4 @@
-﻿using HidSharp;
+using HidSharp;
 using HidSharp.Reports;
 using System.Text;
 
@@ -9,6 +9,8 @@ public static class AsusHid
 
     public const byte INPUT_ID = 0x5a;
     public const byte AURA_ID = 0x5d;
+    public const byte ZENBOOK_16X_AURA_ID = 0x5c;
+    public const byte ZENBOOK_16X_ALOGO_ID = 0xc1;
 
     public static int[] MAIN_AURA_PIDS = { 0x1a30, 0x1854, 0x1869, 0x1866, 0x19b6, 0x1822, 0x1837, 0x1854, 0x184a, 0x183d, 0x8502, 0x1807, 0x17e0, 0x1abe, 0x1b4c, 0x1b6e, 0x1b2c, 0x8854, 0x1CE7, 0x1ce6, 0x1bf2, 0x1cd7, 0x1cd8 };
     public static int[] REAR_LIGHT_PIDS = { 0x18c6 };
@@ -23,7 +25,8 @@ public static class AsusHid
     static void EnsureAuraStream()
     {
         if (auraStream != null) return;
-        auraStream = FindHidStream(AURA_ID);
+        byte reportId = AppConfig.IsZenbookPro16X() ? ZENBOOK_16X_AURA_ID : AURA_ID;
+        auraStream = FindHidStream(reportId);
         if (auraStream == null) return;
         auraFeatLen = auraStream.Device.GetMaxFeatureReportLength();
         auraScratch = auraFeatLen > 0 ? new byte[auraFeatLen] : null;
@@ -111,6 +114,12 @@ public static class AsusHid
                 if (duo is not null) return duo.Open();
             }
 
+            if (AppConfig.IsZenbookPro16X())
+            {
+                var ux7602 = devices.Where(device => device.ProductID == 0x8854 && device.DevicePath.Contains("col04", StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
+                if (ux7602 is not null) return ux7602.Open();
+            }
+
             foreach (var device in devices)
                 Logger.WriteLine($"Input available: {device.DevicePath} {device.ProductID.ToString("X")} {device.GetMaxFeatureReportLength()}");
 
@@ -122,6 +131,11 @@ public static class AsusHid
         }
 
         return null;
+    }
+
+    public static void WriteZenbook16XBrightness(int level, string? log = "Backlight")
+    {
+        WriteInput([INPUT_ID, 0xBA, 0xC5, 0xC4, (byte)Math.Clamp(level, 0, 3)], log);
     }
 
     public static void WriteInput(byte[] data, string? log = "USB")

@@ -415,6 +415,11 @@ public static class AppConfig
         return ContainsModel("Vivobook") || ContainsModel("Zenbook") || ContainsModel("ProArt") || ContainsModel("EXPERTBOOK") || ContainsModel(" V16") || ContainsModel("ASUSLaptop");
     }
 
+    public static bool IsZenbookPro16X()
+    {
+        return ContainsModel("UX7602");
+    }
+
     public static bool IsNumberPad()
     {
         return IsStrix() || IsVivoZenPro() || IsDUO();
@@ -524,7 +529,7 @@ public static class AppConfig
 
     public static bool IsBacklightZones()
     {
-        return IsStrix() || IsZ13();
+        return IsStrix() || IsZ13() || IsZenbookPro16X();
     }
 
     public static bool IsLampArray()
@@ -776,6 +781,7 @@ public static class AppConfig
 
     public static bool IsDynamicLightingOnly()
     {
+        if (IsZenbookPro16X()) return false; // UX7602 uses USB HID per-key RGB, not Dynamic Lighting
         return ContainsModel("S560") || ContainsModel("M540") || ContainsModel("UX760");
     }
 
