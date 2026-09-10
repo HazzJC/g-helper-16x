@@ -40,8 +40,10 @@ adds:
 - Hardware lighting effects: Static, Breathing, Color Cycle, Rainbow, Strobe, Raindrop, Flash
 
 All of it is gated behind detection of this specific laptop model, so it has no effect on any
-other supported device. See [`FINDINGS.md`](../FINDINGS.md) in the repo root for the full
-protocol write-up, what's confirmed working, and what's still open.
+other supported device. This has only been tested on one physical unit — see
+[`HANDOVER.md`](../HANDOVER.md) for an honest account of what's confirmed working, what isn't,
+what changed and why, and the compatibility risk for other UX7602 variants. [`FINDINGS.md`](../FINDINGS.md)
+has the full protocol write-up and reverse-engineering detail for anyone continuing the work.
 
 ## :loudspeaker: YouTube Reviews and Guides
 | [![Youtube review Josh Cravey](https://i.ytimg.com/vi/hqe-PjuE-K8/hqdefault.jpg)](https://www.youtube.com/watch?v=hqe-PjuE-K8) | [![Youtube review Crimson Tech](https://i.ytimg.com/vi/5XUIMUzgHU0/hqdefault.jpg)](https://www.youtube.com/watch?v=5XUIMUzgHU0) | [![Youtube review cbutters Tech](https://i.ytimg.com/vi/6aVdwJKZSSc/hqdefault.jpg)](https://www.youtube.com/watch?v=6aVdwJKZSSc) |
