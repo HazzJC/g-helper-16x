@@ -16,10 +16,12 @@ adds:
 - **The lid logo in full RGB** — it's an addressable LED on the same bus as the keys, not the
   on/off ACPI toggle it was assumed to be
 - **Hardware lighting effects** — Static, Breathing, Color Cycle, Rainbow, Strobe, Raindrop, Flash
-- **Software-driven effects** — Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum, Audio Pulse,
-  Gradient and Zone Test all work on this model now
 - **Colour Rain** — a multi-coloured per-key effect built on a small animation framework, so
   further effects are a subclass and a few lines of wiring for future work 
+
+  To do: 
+- **Software-driven effects** — Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum, Audio Pulse,
+  Gradient and Zone Test are next implementation steps.
 
 All of it is gated behind detection of this specific laptop model, so it has no effect on any
 other supported device. 
