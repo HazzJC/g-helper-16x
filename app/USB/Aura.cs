@@ -59,6 +59,7 @@ namespace GHelper.USB
         AUDIO = 26,
         AUDIOPULSE = 27,
         RAIN_COLOR = 28,
+        CUSTOM_PERKEY = 29,
     }
 
     public enum AuraSpeed : int
@@ -211,6 +212,7 @@ namespace GHelper.USB
             if (perKey && AppConfig.IsZenbookPro16X())
             {
                 modes[AuraMode.RAIN_COLOR] = "Colour Rain";
+                modes[AuraMode.CUSTOM_PERKEY] = "Custom (Per-Key)";
             }
 
             if (isAlly)
@@ -461,7 +463,7 @@ namespace GHelper.USB
             {
                 if (!backlight) initDirect = true;
                 backlight = true;
-                if (Mode == AuraMode.GRADIENT || Mode == AuraMode.RAIN_COLOR) ApplyAura();
+                if (Mode == AuraMode.GRADIENT || Mode == AuraMode.RAIN_COLOR || Mode == AuraMode.CUSTOM_PERKEY) ApplyAura();
             }
 
             if (AppConfig.IsZenbookPro16X())
@@ -1052,6 +1054,12 @@ namespace GHelper.USB
                 return;
             }
 
+            if (Mode == AuraMode.CUSTOM_PERKEY)
+            {
+                ApplyCustomPerKey();
+                return;
+            }
+
             if (AppConfig.IsDynamicLightingOnly())
             {
                 switch (mode)
@@ -1134,6 +1142,30 @@ namespace GHelper.USB
 
             var palette = RainEffect.PaletteFromColors(Color1, Color2);
             PerKeyEngine.Start(new RainEffect(palette, rate, min, max));
+        }
+
+        /// <summary>
+        /// Plays back the frame painted in the per-key editor, with whatever animation was saved
+        /// alongside it. Static needs only one write; the others run through the effect engine.
+        /// </summary>
+        private static void ApplyCustomPerKey()
+        {
+            if (!backlight || sessionLock) return;
+
+            var frame = Zenbook16XCustom.Load();
+            var effect = Zenbook16XCustom.Effect;
+
+            if (effect == CustomFrameMode.Static)
+            {
+                Zenbook16X.DirectEnable();
+                Zenbook16X.Stream(frame);
+            }
+            else
+            {
+                PerKeyEngine.Start(new CustomFrameEffect(frame, effect, Zenbook16XCustom.Speed));
+            }
+
+            Program.acpi.SetMonogramLogo(AppConfig.IsNotFalse("zenbook_custom_logo"));
         }
 
         private static void ApplyZenbook16XAura(AuraMode mode, Color color, AuraSpeed speed)

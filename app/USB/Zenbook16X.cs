@@ -235,6 +235,64 @@ namespace GHelper.USB
         }
     }
 
+    /// <summary>How a hand-painted per-key frame is animated.</summary>
+    public enum CustomFrameMode
+    {
+        Static = 0,
+        Breathe = 1,
+        Strobe = 2,
+        Sweep = 3,
+    }
+
+    /// <summary>
+    /// Animates a hand-painted frame without changing its colours - only their brightness - so a
+    /// custom layout stays recognisable while it moves. The single-colour hardware effects can't
+    /// do this: they replace the whole keyboard with one colour.
+    /// </summary>
+    public class CustomFrameEffect : PerKeyEffect
+    {
+        readonly Color[] baseFrame;
+        readonly CustomFrameMode mode;
+        readonly double speed;
+
+        public CustomFrameEffect(Color[] baseFrame, CustomFrameMode mode, double speed)
+        {
+            this.baseFrame = baseFrame;
+            this.mode = mode;
+            this.speed = speed;
+        }
+
+        public override void Render(Color[] frame, double time, double dt)
+        {
+            for (int slot = 0; slot < frame.Length && slot < baseFrame.Length; slot++)
+            {
+                Color c = baseFrame[slot];
+                if (c.R + c.G + c.B == 0) continue;
+
+                double level = mode switch
+                {
+                    // 0.08..1.0 so the dimmest point still shows the design faintly.
+                    CustomFrameMode.Breathe => 0.08 + 0.92 * (0.5 + 0.5 * Math.Sin(time * speed * Math.PI)),
+                    CustomFrameMode.Strobe => Math.Sin(time * speed * Math.PI * 2) > 0 ? 1.0 : 0.0,
+                    CustomFrameMode.Sweep => SweepLevel(slot, time),
+                    _ => 1.0,
+                };
+
+                frame[slot] = Color.FromArgb(
+                    (int)(c.R * level), (int)(c.G * level), (int)(c.B * level));
+            }
+        }
+
+        /// <summary>A bright band travelling left to right across the key columns.</summary>
+        double SweepLevel(int slot, double time)
+        {
+            int col = slot % Zenbook16X.STRIDE;
+            double head = (time * speed * 4) % (Zenbook16X.COLS + 6) - 3;
+            double distance = Math.Abs(col - head);
+            return 0.15 + 0.85 * Math.Max(0, 1 - distance / 3.5);
+        }
+    }
+
     /// <summary>
     /// Multi-coloured rain: drops spawn at the top of random columns, fall with a fading tail,
     /// and splash the nearer lightbar as they run off the bottom.

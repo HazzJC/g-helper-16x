@@ -45,6 +45,7 @@ namespace GHelper
         public Updates? updatesForm;
         public Handheld? handheldForm;
         public OverlayConfig? overlayForm;
+        public Zenbook16XEditor? perKeyEditor;
 
         static long lastRefresh;
         static long lastBatteryRefresh;
@@ -1388,6 +1389,25 @@ namespace GHelper
         {
             AppConfig.Set("aura_mode", (int)comboKeyboard.SelectedValue);
             SetAura();
+
+            // Picking the per-key mode opens its editor - there's nowhere else to paint the
+            // individual keys, so selecting it and getting no way in would be a dead end.
+            if ((AuraMode)comboKeyboard.SelectedValue == AuraMode.CUSTOM_PERKEY && AppConfig.IsZenbookPro16X())
+                ShowPerKeyEditor();
+        }
+
+        public void ShowPerKeyEditor()
+        {
+            if (perKeyEditor is not null && !perKeyEditor.IsDisposed)
+            {
+                perKeyEditor.Activate();
+                return;
+            }
+
+            perKeyEditor = new Zenbook16XEditor();
+            perKeyEditor.TopMost = AppConfig.Is("topmost");
+            perKeyEditor.FormClosed += (_, _) => perKeyEditor = null;
+            perKeyEditor.Show();
         }
 
 
