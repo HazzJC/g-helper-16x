@@ -256,6 +256,7 @@ namespace GHelper
             {
                 Logger.WriteLine("Session:" + e.Reason.ToString());
                 Aura.sessionLock = true;
+                PerKeyEngine.Stop();
             }
         }
 

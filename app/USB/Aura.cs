@@ -58,6 +58,7 @@ namespace GHelper.USB
         ZONETEST = 25,
         AUDIO = 26,
         AUDIOPULSE = 27,
+        RAIN_COLOR = 28,
     }
 
     public enum AuraSpeed : int
@@ -204,30 +205,35 @@ namespace GHelper.USB
                 modes[AuraMode.Flash] = "Flash";
             }
 
+            // Software-rendered per-key effects (see Zenbook16X.cs). Unlike the modes above these
+            // don't run on the MCU - the host streams every frame - so they're offered only for
+            // the model whose LED layout has actually been mapped.
+            if (perKey && AppConfig.IsZenbookPro16X())
+            {
+                modes[AuraMode.RAIN_COLOR] = "Colour Rain";
+            }
+
             if (isAlly)
             {
                 modes[AuraMode.BATTERY] = "Battery";
                 return modes;
             }
 
-            // Software-driven modes (Heatmap/GPU/Ambient/Battery/Audio/Gradient/Zone Test) all
-            // stream frames through ApplyDirect(Color[]) on a timer, same as the confirmed-working
-            // manual per-key test - but live testing found none of them actually light the
-            // keyboard on this hardware. Root cause not yet found; hidden until it is.
-            if (!AppConfig.IsZenbookPro16X())
-            {
-                modes[AuraMode.HEATMAP] = "Heatmap";
-                modes[AuraMode.GPUMODE] = "GPU Mode";
-                modes[AuraMode.AMBIENT] = "Ambient";
-                modes[AuraMode.BATTERY] = "Battery";
-                modes[AuraMode.AUDIO] = "Audio Spectrum";
-                modes[AuraMode.AUDIOPULSE] = "Audio Pulse";
+            // These stream frames through ApplyDirect(Color[]). On the Zenbook Pro 16X they used
+            // to do nothing and were hidden; the cause was the missing [5C A2 00 00] enable
+            // packet, without which the MCU kept rendering its own firmware effect over the top
+            // of every streamed frame. Fixed in ApplyZenbook16XDirect, so they're offered again.
+            modes[AuraMode.HEATMAP] = "Heatmap";
+            modes[AuraMode.GPUMODE] = "GPU Mode";
+            modes[AuraMode.AMBIENT] = "Ambient";
+            modes[AuraMode.BATTERY] = "Battery";
+            modes[AuraMode.AUDIO] = "Audio Spectrum";
+            modes[AuraMode.AUDIOPULSE] = "Audio Pulse";
 
-                if (isStrixKb)
-                {
-                    modes[AuraMode.GRADIENT] = "Gradient";
-                    modes[AuraMode.ZONETEST] = "Zone Test";
-                }
+            if (isStrixKb)
+            {
+                modes[AuraMode.GRADIENT] = "Gradient";
+                modes[AuraMode.ZONETEST] = "Zone Test";
             }
 
             return modes;
@@ -442,7 +448,11 @@ namespace GHelper.USB
 
         public static void ApplyBrightness(int brightness, string log = "Backlight")
         {
-            if (brightness == 0) backlight = false;
+            if (brightness == 0)
+            {
+                backlight = false;
+                PerKeyEngine.Stop();
+            }
 
             DirectBrightness(brightness, log);
             if (AppConfig.IsAlly()) ApplyAura();
@@ -451,7 +461,7 @@ namespace GHelper.USB
             {
                 if (!backlight) initDirect = true;
                 backlight = true;
-                if (Mode == AuraMode.GRADIENT) ApplyAura();
+                if (Mode == AuraMode.GRADIENT || Mode == AuraMode.RAIN_COLOR) ApplyAura();
             }
 
             if (AppConfig.IsZenbookPro16X())
@@ -524,6 +534,8 @@ namespace GHelper.USB
 
         public static void ApplyPowerOff()
         {
+            PerKeyEngine.Stop();
+
             if (AppConfig.IsZenbookPro16X())
             {
                 Program.acpi.SetMonogramLogo(false);
@@ -823,6 +835,12 @@ namespace GHelper.USB
             buffer[147] = leftBar;
             buffer[163] = rightBar;
 
+            // Must precede the chunks: puts the controller into host-streamed mode, and is what
+            // lets a streamed frame pre-empt a firmware effect that's still animating on the MCU.
+            // EnsureDirect rather than DirectEnable so the continuously-streaming modes don't
+            // re-blank the buffer on every frame. See Zenbook16X.DirectEnable.
+            Zenbook16X.EnsureDirect();
+
             for (int chunk = 0; chunk < 11; chunk++)
             {
                 int chunkStart = chunk * 16;
@@ -972,6 +990,7 @@ namespace GHelper.USB
             }
 
             timer.Stop();
+            PerKeyEngine.Stop();
             if (Mode != AuraMode.AUDIO && Mode != AuraMode.AUDIOPULSE) StopAudio();
 
             Logger.WriteLine($"AuraMode: {Mode}");
@@ -1024,6 +1043,12 @@ namespace GHelper.USB
             if (Mode == AuraMode.GPUMODE)
             {
                 CustomRGB.ApplyGPUColor();
+                return;
+            }
+
+            if (Mode == AuraMode.RAIN_COLOR)
+            {
+                StartRain();
                 return;
             }
 
@@ -1092,6 +1117,25 @@ namespace GHelper.USB
 
         }
 
+        /// <summary>
+        /// Starts the software-rendered rain effect. Drop pace comes from the Aura speed setting;
+        /// drop colours are sampled from a palette spanning the two Aura colours.
+        /// </summary>
+        private static void StartRain()
+        {
+            if (!backlight || sessionLock) return;
+
+            (double rate, double min, double max) = Speed switch
+            {
+                AuraSpeed.Slow => (3.5, 2.0, 3.5),
+                AuraSpeed.Fast => (10.0, 5.0, 9.0),
+                _ => (6.0, 3.0, 5.5),
+            };
+
+            var palette = RainEffect.PaletteFromColors(Color1, Color2);
+            PerKeyEngine.Start(new RainEffect(palette, rate, min, max));
+        }
+
         private static void ApplyZenbook16XAura(AuraMode mode, Color color, AuraSpeed speed)
         {
             if (!backlight)
@@ -1138,6 +1182,10 @@ namespace GHelper.USB
             applyPkt[1] = 0xA5;
 
             AsusHid.SetFeatureAura(applyPkt);
+
+            // The controller is now rendering a firmware effect, so the next streamed frame has
+            // to re-enable host-streamed mode before it will be displayed.
+            Zenbook16X.InvalidateDirect();
         }
 
         public static void StopAudio()

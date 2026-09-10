@@ -136,6 +136,18 @@ All changes are additive and gated behind `AppConfig.IsZenbookPro16X()` (model s
   - Monogram logo state is synced alongside brightness/power/mode changes, matching how other
     models keep their own lid-logo state in sync — implemented correctly, just not effective, per
     above.
+  - `ApplyZenbook16XDirect()` sends the `[0x5C, 0xA2, 0x00, 0x00]` enable packet before the chunk
+    stream — the fix that made every software-driven mode work (see below).
+- **`app/USB/Zenbook16X.cs`** (new)
+  - The per-key streaming layer for this model: the enable packet, the chunk stream, and the LED
+    layout constants (row-major, stride 21).
+  - `PerKeyEffect` / `PerKeyEngine` — a small framework for software-rendered per-key animations:
+    a fixed-rate frame timer that renders into a slot buffer and streams it, dropping frames
+    rather than queueing them if the USB write falls behind.
+  - `RainEffect` — the first effect built on it, exposed as `AuraMode.RAIN_COLOR` ("Colour Rain").
+    Drop pace follows the existing Aura speed setting; drop colours are sampled from a palette
+    spanning the two existing Aura colour pickers, falling back to the full spectrum when those
+    colours have no usable hue.
 
 ## What was actually reverse-engineered, and how (for anyone who wants to double-check this)
 
@@ -186,17 +198,40 @@ decompiler dependency not otherwise needed by the app.
 - Two effects discovered this session that upstream's `AuraMode` enum already has names for but
   weren't wired up for this model before: `Rain` (which turns out to trigger this keyboard's
   built-in "Raindrop" random red/white/blue animation) and `Flash`
+- Software-driven "dynamic" modes: Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum, Audio
+  Pulse, Gradient and Zone Test. These were confirmed broken and hidden in an earlier session;
+  the cause was a missing enable packet (below), and Zone Test, Gradient and Ambient have since
+  been re-confirmed working live.
+- A software-rendered per-key effect, **Colour Rain** — multi-coloured drops falling down the key
+  matrix with fading tails, splashing the lightbars. Confirmed live both standalone and through
+  the real `Aura.ApplyAura()` path.
 
-**Confirmed not working this session, and hidden from this model's mode list rather than left as
-a silently-broken UI option** (all still present and working for every other model — the hiding
+**The one correction that mattered most, relative to the previous version of this document:**
+
+`[0x5C, 0xA2, 0x00, 0x00]` is an **enable** packet that must precede a streamed frame — not a
+trailing "commit". Two passes got this wrong in opposite directions: the first sent it after the
+chunks (which blanks the keyboard, and was the original "backlight off despite max brightness"
+bug), and the second removed it entirely. Removing it appeared to work only because ASUS's own
+background agent had already put the controller into host-streamed mode; from a clean state, or
+after any hardware effect had been selected, streaming silently did nothing. That is the whole
+reason the software-driven modes above looked broken.
+
+The packet is not a guess — it appears verbatim in `AsusExclusiveAgent.exe`
+(`mov dword [rsp+40h],0A25Ch` into a zeroed 64-byte buffer, at two call sites immediately before
+`HidD_SetFeature`). Confirmed live by setting hardware Rainbow, letting it animate, then sending
+enable + a solid-red frame stream: the red takes over immediately, and without the enable it does
+not.
+
+The LED index layout is also now mapped: a row-major matrix with a stride of 21
+(`slot = row * 21 + column`), verified key by key against the physical keyboard. Full protocol and
+layout reference: `docs/UX7602-LIGHTING.md`.
+
+**Confirmed not working, and hidden from this model's mode list rather than left as a
+silently-broken UI option** (all still present and working for every other model — the hiding
 is scoped to this one model only):
 - `Star`, `Highlight`, `Laser`, `Ripple`, `Comet` — no hardware effect observed at the byte value
-  G-Helper would otherwise send for these.
-- Every software-driven "dynamic" mode — Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum,
-  Audio Pulse, Gradient, Zone Test. These are puzzling: they all end up calling the exact same
-  per-key streaming function that's confirmed working for the manual tests above, just from a
-  repeating timer instead of a one-off call, and yet don't visibly do anything on this hardware.
-  Root cause not yet found (see "Open items").
+  G-Helper would otherwise send for these. ASUS's own UI for this model doesn't offer them either,
+  so they may simply be absent from this firmware.
 
 **Confirmed not working, implemented but not fixed:**
 - Monogram lid logo (see above — implemented per what documentation existed, does not work on
@@ -226,32 +261,27 @@ is scoped to this one model only):
   per-key laptops in the same dropdown. That trade-off seemed right for a first pass; a maintainer
   may reasonably weigh it differently.
 
-## Open items / what's being worked on now
+## Open items
 
-1. **Software-driven dynamic modes (Heatmap/Gradient/etc.) not working** — the most promising
-   concrete lead. They call the same, confirmed-working, per-key streaming function as everything
-   else that does work; the difference is they're driven by a repeating timer rather than a single
-   call. Next step is adding logging to see how far execution actually gets when one of these
-   modes is selected.
-2. **Per-key index mapping beyond the two lightbar indices** — the keyboard-key portion of the
-   168-slot index table was inherited from before this session and not individually re-verified
-   key-by-key; a solid-color test and a 3-zone test don't exercise that level of detail. Now that
-   the underlying streaming mechanism is confirmed working, the plan is to light one index at a
-   time and have a human confirm which physical key lit up, to verify (or correct) the mapping
-   directly rather than continuing to infer it from ASUS's own software.
-3. **Real total key/zone count** — the implementation assumes 168 addressable slots; one live
-   capture of ASUS's own software's traffic hinted the real number might be 164, not fully
-   reconciled. Doesn't currently break anything (the whole keyboard lights correctly either way),
-   but matters for exact-index work later.
-4. **Monogram lid logo** — root cause of the ACPI failure not found; the alternate `0xC1` HID
+1. **Per-key control UI.** The streaming layer and effect framework (`app/USB/Zenbook16X.cs`) are
+   in place and the LED layout is mapped, but there is no UI for setting individual key colours
+   yet.
+2. **Lightbar resolution.** Slots 147 (left) and 163 (right) are the two known lightbar zones, but
+   lighting the whole 147-167 band lit the sidebars, so there may be more addressable LEDs along
+   them. If so, gradients along the bars become possible instead of two flat blocks.
+3. **Arrow-key slots.** Slot 139 lights the up arrow and roughly 159-161 light left/down/right,
+   but the exact per-arrow assignment is unconfirmed — the keys are small enough that light bleed
+   between them made direct observation ambiguous.
+4. **Real total slot count.** The implementation streams 176 slots; one capture of ASUS's own
+   traffic hinted the real number is 164. Streaming 176 works regardless (extra slots are
+   ignored), so this is cosmetic, but it is unreconciled.
+5. **Monogram lid logo** — root cause of the ACPI failure not found; the alternate `0xC1` HID
    channel this device exposes was queried but never properly investigated as a replacement path.
 
-Full technical detail, exact protocol bytes, the reverse-engineering tooling, and a complete list
-of abandoned approaches (including the Wireshark/USBPcap attempt, kept for the record so it isn't
-re-attempted without reason) are in `FINDINGS.md`, written primarily for whoever continues this
-work next rather than for a maintainer evaluating the fork — this document is the higher-level
-summary of that material.
-
+Full technical detail, exact protocol bytes and the LED layout table are in
+`docs/UX7602-LIGHTING.md`. `FINDINGS.md` carries the working notes, the reverse-engineering
+tooling, and a list of abandoned approaches kept on record so they aren't re-attempted without
+reason.
 ## Repository layout note
 
 The CLI probe/reverse-engineering tool (`ProbeAura`) referenced throughout this document and in
