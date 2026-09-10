@@ -1,3 +1,29 @@
+
+## :sparkles: About this fork
+
+This is a personal fork of [seerge/g-helper](https://github.com/seerge/g-helper) — all credit for
+the app itself goes to the original project, incredible tool. This fork exists solely to add support for keyboard individual level backlight control on my
+**ASUS ZenBook Pro 16X OLED (UX7602BZ / UX7602ZM)**, whose keyboard backlight, per-key RGB, side
+lightbars, and brightness controls aren't supported upstream by the current app. 
+
+Through live hardware testing and reverse-engineering of ASUS's own MyASUS software, this fork
+adds:
+
+- **Keyboard backlight brightness** — four real dimming levels, not just on/off
+- **A per-key lighting editor** — a top-down view of the keyboard where you click or drag to paint
+  individual keys, both side lightbars and the lid logo, with named profiles you can switch
+  between. Opens from the **Per-Key Lighting** button next to the keyboard mode dropdown.
+- **The lid logo in full RGB** — it's an addressable LED on the same bus as the keys, not the
+  on/off ACPI toggle it was assumed to be
+- **Hardware lighting effects** — Static, Breathing, Color Cycle, Rainbow, Strobe, Raindrop, Flash
+- **Software-driven effects** — Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum, Audio Pulse,
+  Gradient and Zone Test all work on this model now
+- **Colour Rain** — a multi-coloured per-key effect built on a small animation framework, so
+  further effects are a subclass and a few lines of wiring for future work 
+
+All of it is gated behind detection of this specific laptop model, so it has no effect on any
+other supported device. 
+
 # G-Helper - Lightweight control tool for Asus laptops
 
 Small and lightweight Armoury Crate alternative for Asus laptops offering almost same functionality with a much smaller footprint. Works with all popular models, such as ROG Zephyrus G14, G15, G16, M16, X13, X16, Z13, DUO, TUF Series, Strix or Scar Series, ProArt, Vivobook, Zenbook, Expertbook, ROG Ally or Ally X and many more!
@@ -26,32 +52,7 @@ Small and lightweight Armoury Crate alternative for Asus laptops offering almost
 
 [![United24](https://github.com/user-attachments/assets/aa9444e3-9daa-4b88-a473-7a7f855e3a07)](https://u24.gov.ua/)
 
-## :sparkles: About this fork
 
-This is a personal fork of [seerge/g-helper](https://github.com/seerge/g-helper) — all credit for
-the app itself goes to the original project. This fork exists solely to add support for the
-**ASUS ZenBook Pro 16X OLED (UX7602BZ / UX7602ZM)**, whose keyboard backlight, per-key RGB, side
-lightbars, and brightness controls aren't supported upstream.
-
-Through live hardware testing and reverse-engineering of ASUS's own MyASUS software, this fork
-adds:
-
-- **Keyboard backlight brightness** — four real dimming levels, not just on/off
-- **A per-key lighting editor** — a top-down view of the keyboard where you click or drag to paint
-  individual keys, both side lightbars and the lid logo, with named profiles you can switch
-  between. Opens from the **Per-Key Lighting** button next to the keyboard mode dropdown.
-- **The lid logo in full RGB** — it's an addressable LED on the same bus as the keys, not the
-  on/off ACPI toggle it was assumed to be
-- **Hardware lighting effects** — Static, Breathing, Color Cycle, Rainbow, Strobe, Raindrop, Flash
-- **Software-driven effects** — Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum, Audio Pulse,
-  Gradient and Zone Test all work on this model now
-- **Colour Rain** — a multi-coloured per-key effect built on a small animation framework, so
-  further effects are a subclass and a few lines of wiring
-- Animating a hand-painted profile with Breathe, Strobe or Sweep, which modulate brightness only
-  so your own colours stay recognisable
-
-All of it is gated behind detection of this specific laptop model, so it has no effect on any
-other supported device.
 
 ### Documentation
 
