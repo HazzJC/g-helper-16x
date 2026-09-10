@@ -115,9 +115,11 @@ namespace GHelper.USB
             cells.Add(new CellDef("Left bar", -1.15f, FN_Y, 0.55f, HEIGHT, new[] { Zenbook16X.SLOT_LIGHTBAR_LEFT }, CellKind.Lightbar));
             cells.Add(new CellDef("Right bar", WIDTH + 0.6f, FN_Y, 0.55f, HEIGHT, new[] { Zenbook16X.SLOT_LIGHTBAR_RIGHT }, CellKind.Lightbar));
 
-            // ---- Lid logo. Driven over ACPI, not this LED buffer, and on/off rather than RGB -
-            // hence no slots. Known not to work on this firmware; see docs/UX7602-LIGHTING.md.
-            cells.Add(new CellDef("Lid logo", 7.2f, -1.75f, 1.6f, 1.4f, Array.Empty<int>(), CellKind.Logo));
+            // ---- Lid logo: slot 0, full RGB, on this same chunk stream (confirmed live).
+            // The rest of row 0 (slots 1-20) is dead. This is NOT the ACPI MonogramLogo call the
+            // app used to make for this model - that is a boolean on a different channel and
+            // returns failure on this firmware, which is why the logo appeared uncontrollable.
+            cells.Add(new CellDef("Lid logo", 7.2f, -1.75f, 1.6f, 1.4f, new[] { 0 }, CellKind.Logo));
 
             return cells.ToArray();
         }

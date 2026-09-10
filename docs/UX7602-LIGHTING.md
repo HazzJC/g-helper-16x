@@ -151,34 +151,58 @@ slot = row * 21 + column
 
 | Row | Slots | Contents | Live columns |
 |---|---|---|---|
-| 0 | 0–20 | *dead — no physical LEDs* | — |
+| 0 | 0–20 | **slot 0 = the lid logo** (full RGB); 1–20 dead | 0 |
 | 1 | 21–41 | Esc, F1–F12, PrtSc, Insert, Delete | 0–15 |
-| 2 | 42–62 | `` ` `` 1–0 - = Backspace×3, Home | 0–16 |
+| 2 | 42–62 | `` ` `` 1–0 - = Backspace, Home | 0–16 |
 | 3 | 63–83 | Tab, Q–P, `[`, `]`, `#`, *(2 dead)*, PgUp | 0–13, 16 |
-| 4 | 84–104 | Caps, A–L, `;`, `'`, Enter×3, PgDn | 0–16 |
-| 5 | 105–125 | LShift, `\`, Z–`/`, RShift×3, End | 0–16 |
-| 6 | 126–146 | Ctrl, Fn, Win, Alt, Space, arrows | 0–14 |
-| 7 | 147–167 | Left/right lightbars **and** the small arrow keys | see below |
+| 4 | 84–104 | Caps, A–L, `;`, `'`, Enter, PgDn | 0–16 |
+| 5 | 105–125 | LShift, `\`, Z–`/`, RShift, End | 0–16 |
+| 6 | 126–146 | Ctrl, Fn, Win, Alt, Space, ↑ | 0–14 |
+| 7 | 147–167 | Both lightbars **and** ←↓→ | 0, 12–14, 16 |
 | 8 | 168–175 | *dead* | — |
+
+Exact assignments for the parts that aren't a simple run:
+
+| Element | Slot(s) |
+|---|---|
+| **Lid logo** | `0` — full RGB, same chunk stream (**not** the ACPI MonogramLogo call) |
+| **Left lightbar** | `147` — a single LED |
+| **Right lightbar** | `163` — a single LED |
+| Up arrow | `139` (row 6) |
+| Left / Down / Right arrows | `159` / `160` / `161` (row 7) |
+| Spacebar | `132` — one centred LED; 130/131/133/134 dead |
+| Backspace / Enter / RShift | one live LED mid-key; write the whole 3–4 slot span for safety |
+| Bottom-row modifiers | Ctrl `126`, Fn `127`, Win `128`, Alt `129`, AltGr `135`, Menu `136`, Ctrl `137` |
 
 Notes:
 
+- **The function row is dense** — Esc `21`, F1–F12 `22`–`33`, PrtSc `34`, Insert `35`, Delete `36`.
+  The inherited Strix `packetMap` in `Aura.cs` disagrees (it puts gaps at 22/27/32 and F10–F12 at
+  34–36); on this machine it is wrong. Confirmed by photograph.
 - **Columns 17–20 of every row are dead.** They are numpad positions the chassis doesn't have.
-- **Wide keys occupy three consecutive slots** — Backspace (55–57), Enter (97–99), RShift
-  (117–119). Lighting all three gives an even wash; lighting one gives a hotspot.
-- **The arrow cluster straddles rows 6 and 7**, as the physical half-height inverted-T does. Slot
-  139 lights the up arrow; slots around 159–161 light left/down/right. The exact per-arrow
-  assignment is **not yet pinned down** — the keys are small enough that light bleed between them
-  made the photo ambiguous.
-- **Row 7 drives the side lightbars.** Slot `147` (left) and `163` (right) are corroborated by
-  ASUS's own per-key editor, which names its two lightbar UI elements `key147` and `key163`.
-  Lighting all of 147–167 lit the sidebars, so the bars are likely more than two addressable LEDs
-  — **worth pinning down**, since it would allow gradients along the bars rather than two blocks.
+- **The lightbars have no resolution.** Lighting the whole 147–167 band lights them, but only
+  147 and 163 actually drive them — everything between is dead, so a gradient along a bar is not
+  possible. Two zones is the ceiling. (147/163 are corroborated by ASUS's own per-key editor,
+  which names its two lightbar UI elements `key147` and `key163`.)
+- **The arrow cluster straddles rows 6 and 7**, as the physical half-height inverted-T does.
 - Because columns are "nth key along the row" and rows have different key counts, a single column
   index does **not** trace a straight vertical line — it follows the keyboard's natural stagger.
   This looks correct for falling-drop effects and is not a bug.
 
----
+### The lid logo
+
+The lid logo is **slot 0 of this same LED buffer, in full RGB**. It is painted, animated and
+streamed exactly like a key.
+
+This is worth stating plainly because the app previously drove it through
+`AsusACPI.SetMonogramLogo()` — an ACPI `DEVS(0x00100066)` call that takes a *boolean* and returns
+failure (`result=0`) on every call on this firmware. That was the wrong channel *and* the wrong
+shape: the hardware logo is RGB, as ASUS's own per-key editor shows (`alogoPath.Fill` is a colour
+brush, and its IPC has `ALogoLighting`/`ALogoSetting` function ids). Those ACPI calls have been
+removed for this model.
+
+It was missed for so long because slot 0 sits in the otherwise-dead row 0, and because the lid
+faces away from anyone watching the keyboard during a test.
 
 ## 4. How this maps onto the code
 
@@ -240,10 +264,21 @@ animating after it is killed — the MCU renders those itself.
 
 ## 6. Still open
 
-1. **Lid logo.** `AsusACPI.SetMonogramLogo()` (ACPI `DEVS(0x00100066)`) returns result `0` on
-   every call — failure by this codebase's own convention. The `0xC1`/`0xC2` reports on `MI_02`
-   are the untested alternative path.
-2. **Lightbar resolution.** Whether row 7 exposes more than the two known lightbar slots.
-3. **Arrow-key slots.** Exact per-arrow assignment across rows 6/7.
-4. **164 vs 176 slots.** One capture implies 164; 176 works regardless.
-5. **`0x5B` and `0xC1`/`0xC2`.** Both return structured data; purpose unknown.
+1. **164 vs 176 slots.** One capture of ASUS's traffic implies a real total of 164; streaming 176
+   works regardless, since slots past the end are ignored.
+2. **`0x5B` (COL02) and `0xC1`/`0xC2` (MI_02).** All return real, structured data when queried,
+   but their purpose was never determined. `0xC1` was once guessed to be the lid-logo channel;
+   that guess is now moot — the logo is slot 0 of the LED buffer — so these are unexplained
+   rather than needed.
+3. **`0xA1` notification blinks.** Found in the agent, never tested.
+4. **Other UX7602 variants.** Everything here comes from one `UX7602BZ` on firmware
+   `X7602BZ.100`. The `UX7602ZM` and other firmware revisions are untested, and the model gate is
+   a plain `"UX7602"` substring match with no capability probing.
+
+### Recently closed
+
+- ~~Lid logo~~ — it is slot `0`, full RGB, on the LED buffer. The ACPI path was the wrong channel
+  and the wrong shape. See §3.
+- ~~Lightbar resolution~~ — one LED each, `147` and `163`. No gradient possible.
+- ~~Arrow-key slots~~ — up `139`, left `159`, down `160`, right `161`.
+- ~~Software-driven modes not working~~ — the missing `0xA2 00 00` enable. See §2.

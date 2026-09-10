@@ -466,12 +466,6 @@ namespace GHelper.USB
                 if (Mode == AuraMode.GRADIENT || Mode == AuraMode.RAIN_COLOR || Mode == AuraMode.CUSTOM_PERKEY) ApplyAura();
             }
 
-            if (AppConfig.IsZenbookPro16X())
-            {
-                bool onBattery = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
-                bool logoAwake = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
-                Program.acpi.SetMonogramLogo(logoAwake && backlight);
-            }
         }
 
         public static void DirectBrightness(int brightness, string log)
@@ -538,11 +532,9 @@ namespace GHelper.USB
         {
             PerKeyEngine.Stop();
 
-            if (AppConfig.IsZenbookPro16X())
-            {
-                Program.acpi.SetMonogramLogo(false);
-                return;
-            }
+            // The lid logo is slot 0 of the LED buffer on this model, not the ACPI MonogramLogo
+            // call - a hardware mode-set of black covers it along with everything else.
+            if (AppConfig.IsZenbookPro16X()) return;
             AsusHid.Write(AuraPowerMessage(new AuraPower()));
         }
 
@@ -601,7 +593,6 @@ namespace GHelper.USB
 
             if (AppConfig.IsZenbookPro16X())
             {
-                Program.acpi.SetMonogramLogo(flags.AwakeLogo && backlight);
                 ApplyAura();
                 return;
             }
@@ -836,6 +827,11 @@ namespace GHelper.USB
 
             buffer[147] = leftBar;
             buffer[163] = rightBar;
+
+            // Slot 0 is the lid logo. packetMap happens to map an entry to index 0 already, so it
+            // picks up a zone colour for free - this only enforces the user's logo-awake setting.
+            bool awakeLogo = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
+            if (!awakeLogo) buffer[Zenbook16X.SLOT_LOGO] = Color.Black;
 
             // Must precede the chunks: puts the controller into host-streamed mode, and is what
             // lets a streamed frame pre-empt a firmware effect that's still animating on the MCU.
@@ -1107,10 +1103,6 @@ namespace GHelper.USB
 
             if (AppConfig.IsZenbookPro16X())
             {
-                bool onBattery = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
-                bool logoAwake = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
-                Program.acpi.SetMonogramLogo(logoAwake && backlight);
-
                 ApplyZenbook16XAura(Mode, _Color1, effectiveSpeed);
                 return;
             }
@@ -1152,20 +1144,17 @@ namespace GHelper.USB
         {
             if (!backlight || sessionLock) return;
 
-            var frame = Zenbook16XCustom.Load();
-            var effect = Zenbook16XCustom.Effect;
+            var profile = Zenbook16XProfiles.Active();
 
-            if (effect == CustomFrameMode.Static)
+            if (profile.Effect == CustomFrameMode.Static)
             {
                 Zenbook16X.DirectEnable();
-                Zenbook16X.Stream(frame);
+                Zenbook16X.Stream(profile.Frame);
             }
             else
             {
-                PerKeyEngine.Start(new CustomFrameEffect(frame, effect, Zenbook16XCustom.Speed));
+                PerKeyEngine.Start(new CustomFrameEffect(profile.Frame, profile.Effect, profile.SpeedFactor));
             }
-
-            Program.acpi.SetMonogramLogo(AppConfig.IsNotFalse("zenbook_custom_logo"));
         }
 
         private static void ApplyZenbook16XAura(AuraMode mode, Color color, AuraSpeed speed)

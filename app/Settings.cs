@@ -46,6 +46,7 @@ namespace GHelper
         public Handheld? handheldForm;
         public OverlayConfig? overlayForm;
         public Zenbook16XEditor? perKeyEditor;
+        private RButton? buttonPerKey;
 
         static long lastRefresh;
         static long lastBatteryRefresh;
@@ -1282,6 +1283,8 @@ namespace GHelper
                 comboKeyboard.Visible = false;
             }
 
+            InitPerKeyButton();
+
             VisualiseAura();
 
             InitRearLight();
@@ -1389,11 +1392,31 @@ namespace GHelper
         {
             AppConfig.Set("aura_mode", (int)comboKeyboard.SelectedValue);
             SetAura();
+        }
 
-            // Picking the per-key mode opens its editor - there's nowhere else to paint the
-            // individual keys, so selecting it and getting no way in would be a dead end.
-            if ((AuraMode)comboKeyboard.SelectedValue == AuraMode.CUSTOM_PERKEY && AppConfig.IsZenbookPro16X())
-                ShowPerKeyEditor();
+        /// <summary>
+        /// Adds the per-key editor button for the ZenBook Pro 16X. Done in code rather than in the
+        /// designer so the change stays in one place and no other model's layout is touched.
+        /// </summary>
+        private void InitPerKeyButton()
+        {
+            if (!AppConfig.IsZenbookPro16X()) return;
+
+            buttonPerKey = new RButton
+            {
+                Text = "Per-Key Lighting",
+                Dock = DockStyle.Top,
+                FlatStyle = FlatStyle.Flat,
+                Height = comboKeyboard.Height,
+                Margin = comboKeyboard.Margin,
+                BorderRadius = 2,
+            };
+            buttonPerKey.Click += (_, _) => ShowPerKeyEditor();
+
+            tableLayoutKeyboard.Controls.Add(buttonPerKey, 1, 0);
+
+            // InitAura runs after the form's own InitTheme, so this control needs theming itself.
+            ControlHelper.Adjust(this);
         }
 
         public void ShowPerKeyEditor()

@@ -13,9 +13,6 @@ namespace GHelper.UI
         /// <summary>Slot-indexed colour buffer. Painting a cell writes to every slot it lists.</summary>
         public Color[] Colors { get; } = new Color[Zenbook16X.SLOTS];
 
-        /// <summary>Lid logo is an ACPI on/off, not part of the LED buffer.</summary>
-        public bool LogoOn { get; set; } = true;
-
         public Color PaintColor { get; set; } = Color.FromArgb(0, 200, 255);
 
         public event EventHandler? CellsChanged;
@@ -70,15 +67,8 @@ namespace GHelper.UI
         {
             if (c.Kind == CellKind.Dead) return;
 
-            if (c.Kind == CellKind.Logo)
-            {
-                LogoOn = color.GetBrightness() > 0.05f;
-            }
-            else
-            {
-                foreach (int slot in c.Slots)
-                    if (slot >= 0 && slot < Colors.Length) Colors[slot] = color;
-            }
+            foreach (int slot in c.Slots)
+                if (slot >= 0 && slot < Colors.Length) Colors[slot] = color;
 
             Invalidate();
             CellsChanged?.Invoke(this, EventArgs.Empty);
@@ -88,11 +78,10 @@ namespace GHelper.UI
         {
             foreach (var c in Zenbook16XLayout.Cells)
             {
-                if (c.Kind == CellKind.Dead || c.Kind == CellKind.Logo) continue;
+                if (c.Kind == CellKind.Dead) continue;
                 foreach (int slot in c.Slots)
                     if (slot >= 0 && slot < Colors.Length) Colors[slot] = color;
             }
-            LogoOn = color.GetBrightness() > 0.05f;
             Invalidate();
             CellsChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -185,21 +174,16 @@ namespace GHelper.UI
                 var r = RectOf(cell);
                 bool isHover = ReferenceEquals(cell, hover) && cell.Kind != CellKind.Dead;
 
-                Color lit = cell.Kind == CellKind.Logo
-                    ? (LogoOn ? Color.FromArgb(220, 220, 220) : Color.Black)
-                    : ColorOf(cell);
-
-                DrawCell(g, cell, r, lit, isHover, font, textBrush, format);
+                DrawCell(g, cell, r, ColorOf(cell), isHover, font, textBrush, format);
             }
 
-            // Legend for the lid logo, which behaves differently from everything else here.
             var logo = Zenbook16XLayout.Cells.FirstOrDefault(c => c.Kind == CellKind.Logo);
             if (logo is not null)
             {
                 var lr = RectOf(logo);
                 using var small = new Font("Segoe UI", Math.Max(5.5f, scale * 0.16f), GraphicsUnit.Pixel);
                 using var dim = new SolidBrush(Color.FromArgb(150, RForm.foreMain));
-                g.DrawString("lid logo (on/off)", small, dim,
+                g.DrawString("lid logo", small, dim,
                     new RectangleF(lr.Left - scale, lr.Bottom, lr.Width + scale * 2, scale * 0.5f), format);
             }
         }

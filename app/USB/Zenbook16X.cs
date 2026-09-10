@@ -9,7 +9,7 @@ namespace GHelper.USB
     /// the physical keyboard): the LED index space is a row-major matrix with a stride of 21.
     /// Slot = row * 21 + column.
     ///
-    ///   row 0   slots   0- 20   dead (no physical LEDs)
+    ///   row 0   slot 0 = the lid logo (full RGB); slots 1-20 dead
     ///   row 1   slots  21- 41   Esc, F1-F12, PrtSc, Insert, Delete      (cols 0-15)
     ///   row 2   slots  42- 62   `, 1-0, -, =, Backspace x3, Home        (cols 0-16)
     ///   row 3   slots  63- 83   Tab, Q-P, [, ], #, (2 dead), PgUp       (cols 0-13, 16)
@@ -35,6 +35,9 @@ namespace GHelper.USB
         public const int ROW_BOTTOM = 6;
         /// Columns 0-16 are reachable; 17-20 are absent numpad positions.
         public const int COLS = 17;
+
+        /// <summary>The lid logo - full RGB, slot 0 of this same buffer (confirmed live).</summary>
+        public const int SLOT_LOGO = 0;
 
         public const int SLOT_LIGHTBAR_LEFT = 147;
         public const int SLOT_LIGHTBAR_RIGHT = 163;

@@ -35,15 +35,36 @@ lightbars, and brightness controls aren't supported upstream.
 
 Through live hardware testing and reverse-engineering of ASUS's own MyASUS software, this fork
 adds:
-- Keyboard backlight brightness control
-- Per-key RGB and independent left/right side-lightbar colors
-- Hardware lighting effects: Static, Breathing, Color Cycle, Rainbow, Strobe, Raindrop, Flash
+
+- **Keyboard backlight brightness** — four real dimming levels, not just on/off
+- **A per-key lighting editor** — a top-down view of the keyboard where you click or drag to paint
+  individual keys, both side lightbars and the lid logo, with named profiles you can switch
+  between. Opens from the **Per-Key Lighting** button next to the keyboard mode dropdown.
+- **The lid logo in full RGB** — it's an addressable LED on the same bus as the keys, not the
+  on/off ACPI toggle it was assumed to be
+- **Hardware lighting effects** — Static, Breathing, Color Cycle, Rainbow, Strobe, Raindrop, Flash
+- **Software-driven effects** — Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum, Audio Pulse,
+  Gradient and Zone Test all work on this model now
+- **Colour Rain** — a multi-coloured per-key effect built on a small animation framework, so
+  further effects are a subclass and a few lines of wiring
+- Animating a hand-painted profile with Breathe, Strobe or Sweep, which modulate brightness only
+  so your own colours stay recognisable
 
 All of it is gated behind detection of this specific laptop model, so it has no effect on any
-other supported device. This has only been tested on one physical unit — see
-[`HANDOVER.md`](../HANDOVER.md) for an honest account of what's confirmed working, what isn't,
-what changed and why, and the compatibility risk for other UX7602 variants. [`FINDINGS.md`](../FINDINGS.md)
-has the full protocol write-up and reverse-engineering detail for anyone continuing the work.
+other supported device.
+
+### Documentation
+
+- [`docs/UX7602-LIGHTING.md`](UX7602-LIGHTING.md) — the reference: HID topology, every command on
+  report `0x5C`, the full LED slot map, and how it maps onto the code
+- [`HANDOVER.md`](../HANDOVER.md) — what's confirmed working, what isn't, what changed and why,
+  and the compatibility risk for other UX7602 variants
+- [`FINDINGS.md`](../FINDINGS.md) — working notes, reverse-engineering tooling, and the approaches
+  that were tried and abandoned
+
+This has only ever been tested on one physical unit (`UX7602BZ`, firmware `X7602BZ.100`). Claims
+in those documents are labelled by how they were actually verified — mostly by watching the
+physical keyboard respond to one isolated command at a time.
 
 ## :loudspeaker: YouTube Reviews and Guides
 | [![Youtube review Josh Cravey](https://i.ytimg.com/vi/hqe-PjuE-K8/hqdefault.jpg)](https://www.youtube.com/watch?v=hqe-PjuE-K8) | [![Youtube review Crimson Tech](https://i.ytimg.com/vi/5XUIMUzgHU0/hqdefault.jpg)](https://www.youtube.com/watch?v=5XUIMUzgHU0) | [![Youtube review cbutters Tech](https://i.ytimg.com/vi/6aVdwJKZSSc/hqdefault.jpg)](https://www.youtube.com/watch?v=6aVdwJKZSSc) |
