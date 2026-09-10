@@ -45,6 +45,8 @@ namespace GHelper
         public Updates? updatesForm;
         public Handheld? handheldForm;
         public OverlayConfig? overlayForm;
+        public Zenbook16XEditor? perKeyEditor;
+        private RButton? buttonPerKey;
 
         static long lastRefresh;
         static long lastBatteryRefresh;
@@ -1281,6 +1283,8 @@ namespace GHelper
                 comboKeyboard.Visible = false;
             }
 
+            InitPerKeyButton();
+
             VisualiseAura();
 
             InitRearLight();
@@ -1388,6 +1392,45 @@ namespace GHelper
         {
             AppConfig.Set("aura_mode", (int)comboKeyboard.SelectedValue);
             SetAura();
+        }
+
+        /// <summary>
+        /// Adds the per-key editor button for the ZenBook Pro 16X. Done in code rather than in the
+        /// designer so the change stays in one place and no other model's layout is touched.
+        /// </summary>
+        private void InitPerKeyButton()
+        {
+            if (!AppConfig.IsZenbookPro16X()) return;
+
+            buttonPerKey = new RButton
+            {
+                Text = "Per-Key Lighting",
+                Dock = DockStyle.Top,
+                FlatStyle = FlatStyle.Flat,
+                Height = comboKeyboard.Height,
+                Margin = comboKeyboard.Margin,
+                BorderRadius = 2,
+            };
+            buttonPerKey.Click += (_, _) => ShowPerKeyEditor();
+
+            tableLayoutKeyboard.Controls.Add(buttonPerKey, 1, 0);
+
+            // InitAura runs after the form's own InitTheme, so this control needs theming itself.
+            ControlHelper.Adjust(this);
+        }
+
+        public void ShowPerKeyEditor()
+        {
+            if (perKeyEditor is not null && !perKeyEditor.IsDisposed)
+            {
+                perKeyEditor.Activate();
+                return;
+            }
+
+            perKeyEditor = new Zenbook16XEditor();
+            perKeyEditor.TopMost = AppConfig.Is("topmost");
+            perKeyEditor.FormClosed += (_, _) => perKeyEditor = null;
+            perKeyEditor.Show();
         }
 
 

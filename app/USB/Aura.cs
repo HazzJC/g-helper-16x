@@ -58,6 +58,8 @@ namespace GHelper.USB
         ZONETEST = 25,
         AUDIO = 26,
         AUDIOPULSE = 27,
+        RAIN_COLOR = 28,
+        CUSTOM_PERKEY = 29,
     }
 
     public enum AuraSpeed : int
@@ -204,30 +206,36 @@ namespace GHelper.USB
                 modes[AuraMode.Flash] = "Flash";
             }
 
+            // Software-rendered per-key effects (see Zenbook16X.cs). Unlike the modes above these
+            // don't run on the MCU - the host streams every frame - so they're offered only for
+            // the model whose LED layout has actually been mapped.
+            if (perKey && AppConfig.IsZenbookPro16X())
+            {
+                modes[AuraMode.RAIN_COLOR] = "Colour Rain";
+                modes[AuraMode.CUSTOM_PERKEY] = "Custom (Per-Key)";
+            }
+
             if (isAlly)
             {
                 modes[AuraMode.BATTERY] = "Battery";
                 return modes;
             }
 
-            // Software-driven modes (Heatmap/GPU/Ambient/Battery/Audio/Gradient/Zone Test) all
-            // stream frames through ApplyDirect(Color[]) on a timer, same as the confirmed-working
-            // manual per-key test - but live testing found none of them actually light the
-            // keyboard on this hardware. Root cause not yet found; hidden until it is.
-            if (!AppConfig.IsZenbookPro16X())
-            {
-                modes[AuraMode.HEATMAP] = "Heatmap";
-                modes[AuraMode.GPUMODE] = "GPU Mode";
-                modes[AuraMode.AMBIENT] = "Ambient";
-                modes[AuraMode.BATTERY] = "Battery";
-                modes[AuraMode.AUDIO] = "Audio Spectrum";
-                modes[AuraMode.AUDIOPULSE] = "Audio Pulse";
+            // These stream frames through ApplyDirect(Color[]). On the Zenbook Pro 16X they used
+            // to do nothing and were hidden; the cause was the missing [5C A2 00 00] enable
+            // packet, without which the MCU kept rendering its own firmware effect over the top
+            // of every streamed frame. Fixed in ApplyZenbook16XDirect, so they're offered again.
+            modes[AuraMode.HEATMAP] = "Heatmap";
+            modes[AuraMode.GPUMODE] = "GPU Mode";
+            modes[AuraMode.AMBIENT] = "Ambient";
+            modes[AuraMode.BATTERY] = "Battery";
+            modes[AuraMode.AUDIO] = "Audio Spectrum";
+            modes[AuraMode.AUDIOPULSE] = "Audio Pulse";
 
-                if (isStrixKb)
-                {
-                    modes[AuraMode.GRADIENT] = "Gradient";
-                    modes[AuraMode.ZONETEST] = "Zone Test";
-                }
+            if (isStrixKb)
+            {
+                modes[AuraMode.GRADIENT] = "Gradient";
+                modes[AuraMode.ZONETEST] = "Zone Test";
             }
 
             return modes;
@@ -442,7 +450,11 @@ namespace GHelper.USB
 
         public static void ApplyBrightness(int brightness, string log = "Backlight")
         {
-            if (brightness == 0) backlight = false;
+            if (brightness == 0)
+            {
+                backlight = false;
+                PerKeyEngine.Stop();
+            }
 
             DirectBrightness(brightness, log);
             if (AppConfig.IsAlly()) ApplyAura();
@@ -451,15 +463,9 @@ namespace GHelper.USB
             {
                 if (!backlight) initDirect = true;
                 backlight = true;
-                if (Mode == AuraMode.GRADIENT) ApplyAura();
+                if (Mode == AuraMode.GRADIENT || Mode == AuraMode.RAIN_COLOR || Mode == AuraMode.CUSTOM_PERKEY) ApplyAura();
             }
 
-            if (AppConfig.IsZenbookPro16X())
-            {
-                bool onBattery = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
-                bool logoAwake = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
-                Program.acpi.SetMonogramLogo(logoAwake && backlight);
-            }
         }
 
         public static void DirectBrightness(int brightness, string log)
@@ -524,11 +530,11 @@ namespace GHelper.USB
 
         public static void ApplyPowerOff()
         {
-            if (AppConfig.IsZenbookPro16X())
-            {
-                Program.acpi.SetMonogramLogo(false);
-                return;
-            }
+            PerKeyEngine.Stop();
+
+            // The lid logo is slot 0 of the LED buffer on this model, not the ACPI MonogramLogo
+            // call - a hardware mode-set of black covers it along with everything else.
+            if (AppConfig.IsZenbookPro16X()) return;
             AsusHid.Write(AuraPowerMessage(new AuraPower()));
         }
 
@@ -587,7 +593,6 @@ namespace GHelper.USB
 
             if (AppConfig.IsZenbookPro16X())
             {
-                Program.acpi.SetMonogramLogo(flags.AwakeLogo && backlight);
                 ApplyAura();
                 return;
             }
@@ -823,6 +828,17 @@ namespace GHelper.USB
             buffer[147] = leftBar;
             buffer[163] = rightBar;
 
+            // Slot 0 is the lid logo. packetMap happens to map an entry to index 0 already, so it
+            // picks up a zone colour for free - this only enforces the user's logo-awake setting.
+            bool awakeLogo = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
+            if (!awakeLogo) buffer[Zenbook16X.SLOT_LOGO] = Color.Black;
+
+            // Must precede the chunks: puts the controller into host-streamed mode, and is what
+            // lets a streamed frame pre-empt a firmware effect that's still animating on the MCU.
+            // EnsureDirect rather than DirectEnable so the continuously-streaming modes don't
+            // re-blank the buffer on every frame. See Zenbook16X.DirectEnable.
+            Zenbook16X.EnsureDirect();
+
             for (int chunk = 0; chunk < 11; chunk++)
             {
                 int chunkStart = chunk * 16;
@@ -972,6 +988,7 @@ namespace GHelper.USB
             }
 
             timer.Stop();
+            PerKeyEngine.Stop();
             if (Mode != AuraMode.AUDIO && Mode != AuraMode.AUDIOPULSE) StopAudio();
 
             Logger.WriteLine($"AuraMode: {Mode}");
@@ -1027,6 +1044,18 @@ namespace GHelper.USB
                 return;
             }
 
+            if (Mode == AuraMode.RAIN_COLOR)
+            {
+                StartRain();
+                return;
+            }
+
+            if (Mode == AuraMode.CUSTOM_PERKEY)
+            {
+                ApplyCustomPerKey();
+                return;
+            }
+
             if (AppConfig.IsDynamicLightingOnly())
             {
                 switch (mode)
@@ -1074,10 +1103,6 @@ namespace GHelper.USB
 
             if (AppConfig.IsZenbookPro16X())
             {
-                bool onBattery = SystemInformation.PowerStatus.PowerLineStatus != PowerLineStatus.Online;
-                bool logoAwake = onBattery ? AppConfig.IsOnBattery("keyboard_awake_logo") : AppConfig.IsNotFalse("keyboard_awake_logo");
-                Program.acpi.SetMonogramLogo(logoAwake && backlight);
-
                 ApplyZenbook16XAura(Mode, _Color1, effectiveSpeed);
                 return;
             }
@@ -1090,6 +1115,46 @@ namespace GHelper.USB
 
             ApplyRearLight();
 
+        }
+
+        /// <summary>
+        /// Starts the software-rendered rain effect. Drop pace comes from the Aura speed setting;
+        /// drop colours are sampled from a palette spanning the two Aura colours.
+        /// </summary>
+        private static void StartRain()
+        {
+            if (!backlight || sessionLock) return;
+
+            (double rate, double min, double max) = Speed switch
+            {
+                AuraSpeed.Slow => (3.5, 2.0, 3.5),
+                AuraSpeed.Fast => (10.0, 5.0, 9.0),
+                _ => (6.0, 3.0, 5.5),
+            };
+
+            var palette = RainEffect.PaletteFromColors(Color1, Color2);
+            PerKeyEngine.Start(new RainEffect(palette, rate, min, max));
+        }
+
+        /// <summary>
+        /// Plays back the frame painted in the per-key editor, with whatever animation was saved
+        /// alongside it. Static needs only one write; the others run through the effect engine.
+        /// </summary>
+        private static void ApplyCustomPerKey()
+        {
+            if (!backlight || sessionLock) return;
+
+            var profile = Zenbook16XProfiles.Active();
+
+            if (profile.Effect == CustomFrameMode.Static)
+            {
+                Zenbook16X.DirectEnable();
+                Zenbook16X.Stream(profile.Frame);
+            }
+            else
+            {
+                PerKeyEngine.Start(new CustomFrameEffect(profile.Frame, profile.Effect, profile.SpeedFactor));
+            }
         }
 
         private static void ApplyZenbook16XAura(AuraMode mode, Color color, AuraSpeed speed)
@@ -1138,6 +1203,10 @@ namespace GHelper.USB
             applyPkt[1] = 0xA5;
 
             AsusHid.SetFeatureAura(applyPkt);
+
+            // The controller is now rendering a firmware effect, so the next streamed frame has
+            // to re-enable host-streamed mode before it will be displayed.
+            Zenbook16X.InvalidateDirect();
         }
 
         public static void StopAudio()

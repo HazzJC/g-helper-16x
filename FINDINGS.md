@@ -1,31 +1,57 @@
 # ASUS ZenBook Pro 16X OLED (UX7602) Lighting — Findings, Fixes, and Open Problems
 
-Session date: 2026-09-09/10. This documents what was actually verified on real hardware in this
-session (as opposed to what earlier sessions *claimed* was verified — see "Prior claims were not
-real" below), what was fixed, and what's still broken or unknown, so a future session can pick up
-without re-deriving all of this.
+Sessions: 2026-09-09/10. This documents what was actually verified on real hardware (as opposed
+to what earlier sessions *claimed* was verified — see "Prior claims were not real" below), what
+was fixed, and what's still broken or unknown, so a future session can pick up without
+re-deriving all of this.
+
+> **2026-09-10 update — read this before the rest of the file.** The "no trailing commit packet"
+> conclusion below was half right and half wrong, and the "software-driven modes don't work" open
+> problem is now **solved**. `[0x5C, 0xA2, 0x00, 0x00]` is not a commit — it is an **enable**,
+> and it belongs **before** the chunk stream. Sections below that predate this are kept for the
+> record but are superseded by `docs/UX7602-LIGHTING.md`, which is now the reference document.
+>
+> - Sent **after** the chunks (first pass): blanks the keyboard — the reset wipes the frame that
+>   was just painted.
+> - **Removed entirely** (second pass): solid colours worked only by accident, because ASUS's
+>   agent had already put the MCU into host-streamed mode and killing it left the MCU there. From
+>   a clean state, or after any hardware effect was selected, streaming did nothing — which is
+>   exactly why every software-driven mode looked broken and got hidden.
+> - Sent **first** (now): confirmed live — set hardware Rainbow, let it animate, then enable +
+>   stream solid red, and the red takes over immediately. Heatmap, GPU Mode, Ambient, Battery,
+>   Audio, Audio Pulse, Gradient and Zone Test are all unhidden again; Zone Test, Gradient and
+>   Ambient were re-confirmed live.
+>
+> The packet is not a guess: it appears verbatim in `AsusExclusiveAgent.exe`
+> (`mov dword [rsp+40h],0A25Ch` into a zeroed 64-byte buffer, call sites `0x1400239F7` and
+> `0x140027CC9`), each immediately before `HidD_SetFeature`.
+>
+> Also newly confirmed: the LED index space is a **row-major matrix with a stride of 21**
+> (`slot = row * 21 + column`), mapped key by key against the physical keyboard. Full table in
+> `docs/UX7602-LIGHTING.md`.
 
 ## TL;DR for the next agent
 
-- The keyboard's real per-key/lightbar protocol is **report `0x5C`, opcode `0xA2`**, 11 chunks of
-  up to 16 LEDs each, **with no trailing "commit" packet**. That's now implemented correctly in
-  `app/USB/Aura.cs` (`ApplyZenbook16XDirect`) and confirmed live: solid colors, and distinct
-  per-zone colors (keys vs. left/right lightbar), both render correctly.
+- The keyboard's real per-key/lightbar protocol is **report `0x5C`, opcode `0xA2`**: one
+  `[5C A2 00 00]` enable, then 11 chunks of up to 16 LEDs each (`[5C A2 00 01 01 00 start count 00 ...]`),
+  and nothing after. Implemented in `app/USB/Zenbook16X.cs`; confirmed live.
 - Single-color hardware effects (Static/Breathe/ColorCycle/Rainbow/Strobe, plus bonus-discovered
   Rain="Raindrop" and Flash) use **report `0x5C`, opcode `0xA0` (mode-set) + `0xA5` (apply)**, one
   packet each, no chunking. Also confirmed live and now used consistently (Static used to
   incorrectly route through the broken chunk path — fixed).
 - Brightness (report `0x5A`, `[0x5A,0xBA,0xC5,0xC4,level]`, level 0-3) is confirmed working
   correctly (real dimming, not on/off) now that Static routes through the right channel.
-- **Broken / not understood, currently hidden from the UI rather than shipped broken:**
+- Software-driven modes (Heatmap, GPU Mode, Ambient, Battery, Audio, AudioPulse, Gradient, Zone
+  Test) **now work** and are unhidden — see the update box above.
+- A software-rendered **"Colour Rain"** per-key effect is implemented
+  (`AuraMode.RAIN_COLOR`, `RainEffect` in `app/USB/Zenbook16X.cs`) and confirmed live end-to-end
+  through the real `Aura.ApplyAura()` path.
+- **Still broken / not understood, hidden from the UI rather than shipped broken:**
   Star, Highlight, Laser, Ripple, Comet (hardware modes — enum ordinal ≠ real hardware mode byte
-  for these), and all "software-driven" modes — Heatmap, GPU Mode, Ambient, Battery, Audio,
-  AudioPulse, Gradient, Zone Test (these stream through the *same, proven-working* `ApplyDirect`
-  per-key path used by manual tests, yet don't light the keyboard when driven by G-Helper's
-  timers — root cause not found, see "Open problem" below).
+  for these, or absent from this firmware).
 - Monogram lid logo control (ACPI WMI `DEVS(0x00100066)`) **does not work** — every call returns
   result code `0`, which the existing `DeviceSet` logging treats as failure (only `1` is "OK").
-  Never fixed or replaced this session.
+  Never fixed or replaced.
 
 ## Environment / how to test
 
@@ -181,24 +207,30 @@ separate mapping table needed. Confirmed live:
   not to work (Star/Highlight/Laser/Ripple/Comet) are hidden from `GetModes()` for this model
   specifically (`AppConfig.IsZenbookPro16X()` guard) rather than left in the UI as broken options.
 
-## Open problem: software-driven "dynamic" modes don't work
+## SOLVED: software-driven "dynamic" modes don't work
 
-Heatmap, GPU Mode, Ambient, Battery, Audio Spectrum, Audio Pulse, Gradient, and Zone Test were all
-confirmed **not working** live in the real G-Helper UI, and are now hidden from `GetModes()` for
-this model (same `IsZenbookPro16X()` guard, in the same method).
+**Root cause: the missing `[0x5C, 0xA2, 0x00, 0x00]` enable packet.** Without it the MCU stays in
+whatever hardware effect it was last given and renders straight over every streamed frame, so the
+chunks are accepted and ignored.
 
-This is puzzling because these all eventually call `Aura.ApplyDirect(Color[])` or
-`Aura.ApplyDirect(Color, bool)` — the exact same code path that `zonetest`/`fulltest` proved works
-correctly (solid colors and distinct per-zone colors, both confirmed visually). The difference is
-that these modes are driven by `System.Timers.Timer` callbacks inside the real running app
-(`Aura.Timer_Elapsed`, or the mode-specific timers set up in `ApplyAura()`), calling into
-`CustomRGB.ApplyHeatmap()` / `ApplyBattery()` / `ApplyAmbient()` / `ApplyGradient()` /
-`ApplyZoneTest()` / `ApplyGPUColor()`, or the audio-visualizer callback `OnAudioSpectrum`.
-**Not investigated this session**: whether these timers are even firing/reaching `ApplyDirect` at
-all for this model (add logging and check `%APPDATA%\GHelper\log.txt`), whether there's a
-threading issue specific to repeated rapid calls (`AsusHid.hidLock` should serialize these, but
-worth double-checking for a deadlock or silently-swallowed exception), or something else entirely.
-This is the most promising concrete lead for tomorrow.
+Why the earlier evidence was so confusing:
+
+- The manual `zonetest`/`fulltest` probes appeared to prove the streaming path worked. They did —
+  but only because ASUS's agent had already put the MCU into host-streamed mode for its own custom
+  per-key effect, and killing the agent left the MCU in that state. The probes inherited it.
+- Selecting a software mode in the app went through `ApplyAura()`, which returns early for these
+  modes *before* the Zenbook `0xA0`/`0xA5` block — so the MCU was left running a firmware effect,
+  and nothing ever enabled host streaming.
+- That also explains the separate observation that "the chunk path does not reliably pre-empt a
+  firmware effect that's still animating". It doesn't — unless the enable packet precedes it.
+  With the enable, pre-emption is immediate and reliable.
+
+It was never a timer, threading or `hidLock` problem. No logging was needed in the end.
+
+**Fix**: `Zenbook16X.DirectEnable()` is now called at the head of `ApplyZenbook16XDirect` and by
+`PerKeyEngine.Start`. Zone Test, Gradient and Ambient were re-confirmed live afterwards
+(distinct colour zones; a white-to-cyan blend; screen-tracking colour respectively), and all eight
+software modes are unhidden in `GetModes()`.
 
 ## Open question: real key/zone count (168 vs 164)
 
@@ -319,24 +351,28 @@ UAC prompts and time for zero data:
 
 ## Next steps (recommended)
 
-1. **Software-driven modes**: add temporary `Logger.WriteLine` calls at the top of
-   `CustomRGB.ApplyHeatmap`/`ApplyBattery`/`ApplyAmbient`/`ApplyGradient`/`ApplyZoneTest`/
-   `ApplyGPUColor` and in `Aura.ApplyDirect(Color[])`'s Zenbook branch, run the real app, select
-   e.g. Gradient, and check `%APPDATA%\GHelper\log.txt` to see whether/how far execution actually
-   gets. This is a 10-minute check that should immediately narrow down whether it's a timer
-   start-up problem, an exception being swallowed somewhere, or something in `ApplyDirect` itself
-   behaving differently under timer-driven repeated calls vs. the one-shot manual test.
-2. **Per-key index mapping**: now that the underlying chunk protocol works, use G-Helper's own
-   (now-fixed) implementation to light one buffer index at a time (a small `ProbeAura.exe`
-   command: loop `i` from 0 to ~175, set only `buffer[i]` to red and everything else black, ask
-   the user which physical key lit up, record it) rather than analyzing MyASUS's traffic further.
-   Confirms/corrects `packetMap` and settles the 168-vs-164 question definitively.
-3. **Monogram lid logo**: `Program.acpi.SetMonogramLogo()` (ACPI `DEVS(0x00100066)`) reliably
+Items 1 and 2 from the previous version of this list are **done** — the software-driven modes are
+fixed (see "SOLVED" above) and the index layout is mapped (`docs/UX7602-LIGHTING.md`). What's left:
+
+1. **Per-key control UI.** The streaming layer (`app/USB/Zenbook16X.cs`) and the effect framework
+   (`PerKeyEffect` / `PerKeyEngine`) are in place; there is no UI for picking individual key
+   colours yet. The layout table in `docs/UX7602-LIGHTING.md` is what a key-picker would render.
+2. **More per-key effects.** `RainEffect` is the worked example. Anything frame-based (ripple from
+   a keypress, wave, fire, starfield, typing-reactive) is now a subclass and three lines of
+   wiring.
+3. **Lightbar resolution.** Slots 147 and 163 are the two known lightbar zones, but lighting all
+   of row 7 (147-167) lit the sidebars, so there may be more addressable LEDs along them. Worth
+   a `pk walk 147 167` pass — if the bars have real resolution, gradients along them become
+   possible instead of two flat blocks.
+4. **Arrow-key slots.** Slot 139 lights the up arrow and ~159-161 light left/down/right, but the
+   exact per-arrow assignment is unconfirmed (the keys are small and bleed into each other).
+5. **Monogram lid logo**: `Program.acpi.SetMonogramLogo()` (ACPI `DEVS(0x00100066)`) reliably
    returns failure (`result=0`). Two options: (a) try the `0xC1` HID channel on `MI_02` instead
    (its `GetFeature` response looked like real structured device state, unlike the `0x5C` echo
    registers — worth a `FindSetFeatureCallers` pass specifically filtered to call sites that also
    reference `MI_02`'s report ID `0xC1`, or a targeted `getfeatureloop` poll while MyASUS's logo
    toggle is used, mirroring exactly how the per-key protocol was found), or (b) accept it's
    unsupported on this firmware and remove `HasLogo`/hide logo controls for this model.
-4. Re-run the abandoned "trace the `ApCustmLt` opcode-13 IPC path" if a genuinely custom
-   (non-zone-flood) per-key UI is wanted later — see "Traced but abandoned" above.
+6. Re-run the abandoned "trace the `ApCustmLt` opcode-13 IPC path" only if the per-key UI needs
+   something the direct chunk protocol can't already do — see "Traced but abandoned" above. Given
+   the chunk format is now fully understood, this is probably unnecessary.
